@@ -5,6 +5,7 @@
 #include <QMainWindow>
 #include <QAction>
 #include "../queue/share_queue.h"
+#include "media_consumer.h"
 #include "virtual_output.h"
 #include "virtual_properties.h"
 #include "get_format.h"
@@ -13,6 +14,7 @@
 
 struct virtual_sink {
 	obs_output_t *output;
+        media_consumer *consumer;
 	share_queue video_queue;
 	share_queue audio_queue;
 	int32_t width;
@@ -60,7 +62,7 @@ static bool virtual_output_start(void *data)
 		video_output_get_format(video));
 	double fps = video_output_get_frame_rate(video);
 	int64_t frame_interval = static_cast<int64_t>(1000000000 / fps);
-
+	
 	bool start = shared_queue_create(&out->video_queue, ModeVideo,
 		fmt, out->width, out->height, frame_interval,out->delay+10);
 
@@ -79,6 +81,18 @@ static bool virtual_output_start(void *data)
 		shared_queue_set_delay(&out->video_queue, out->delay);
 		shared_queue_set_delay(&out->audio_queue, out->delay);
 		start = obs_output_begin_data_capture(out->output, 0);
+		out->consumer = new media_consumer(&out->video_queue,
+						   &out->audio_queue );
+		bool initialized = out->consumer->initialize();
+		if( !initialized ){
+		  delete out->consumer;
+		  out->consumer = nullptr;
+		  obs_output_end_data_capture(out->output);
+		  shared_queue_close(&out->video_queue);
+		  shared_queue_close(&out->audio_queue);
+		  start = false;
+		}
+		  
 	}
 
 	return start;
@@ -87,6 +101,8 @@ static bool virtual_output_start(void *data)
 static void virtual_output_stop(void *data, uint64_t ts)
 {
 	virtual_sink *out = (virtual_sink*)data;
+	delete out->consumer;
+	out->consumer = nullptr;
 	obs_output_end_data_capture(out->output);
 	shared_queue_close(&out->video_queue);
 	shared_queue_close(&out->audio_queue);
@@ -105,8 +121,8 @@ static void virtual_audio(void *param, struct audio_data *frame)
 {
 	virtual_sink *output = (virtual_sink*)param;
 	uint64_t ts = frame->timestamp;
-	shared_queue_push_audio(&output->audio_queue, frame->frames*4,
-		frame->data[0], ts, output->last_video_ts);
+	//	shared_queue_push_audio(&output->audio_queue, frame->frames*4,
+	//		frame->data[0], ts, output->last_video_ts);
 }
 
 obs_properties_t* virtual_getproperties(void *data)

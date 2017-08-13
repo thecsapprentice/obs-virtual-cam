@@ -1,10 +1,12 @@
 #include "share_queue.h"
 #include "libavutil/pixfmt.h"
-
+#include <cstring>
+#include <iostream>
 
 bool shared_queue_create(share_queue* q, int mode, int format, 
 	int frame_width,int frame_height,int64_t frame_time,int qlength)
 {
+  std::cout << "shared_queue_create" << std::endl;
 	if (!q)
 		return false;
 
@@ -14,23 +16,29 @@ bool shared_queue_create(share_queue* q, int mode, int format,
 	int size = 0;
 
 	if (mode == ModeVideo){
+	  std::cout << "Creating a Video Queue!" << std::endl;
 		size = sizeof(queue_header) + (sizeof(frame_header) + VIDEO_SIZE)
 			* qlength;
-		q->hwnd = CreateFileMappingA(INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE, 
-			0, size, MAPPING_NAMEV);
+		//q->hwnd = CreateFileMappingA(INVALID_HANDLE_VALUE, nullptr, PAGE_READWRITE, 
+		//	0, size, MAPPING_NAMEV);
 	}
 	else{
+	  std::cout << "Creating a Audio Queue!" << std::endl;
 		size = sizeof(queue_header) + (sizeof(frame_header) + AUDIO_SIZE)
 			* qlength;
-		q->hwnd = CreateFileMappingA(INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE,
-			0, size, MAPPING_NAMEA);
+		//q->hwnd = CreateFileMappingA(INVALID_HANDLE_VALUE, nullptr, PAGE_READWRITE,
+		//	0, size, MAPPING_NAMEA);
 	}
 
-	if (q->hwnd)
-		q->header = (queue_header*)MapViewOfFile(q->hwnd, FILE_MAP_ALL_ACCESS, 0, 0, size);
-
+	std::cout << "Size is " << size << std::endl;
+	std::cout << "Allocating sufficent space to hold " << qlength << " frames of data" << std::endl;
+	//if (q->hwnd){
+	  //q->header = (queue_header*)MapViewOfFile(q->hwnd, FILE_MAP_ALL_ACCESS, 0, 0, size);
+	  q->header = (queue_header*)(new char[size]);
+	  //}
 	queue_header* q_head = q->header;
 
+	
 	if (q_head){
 
 		q_head->header_size = sizeof(queue_header);
@@ -51,75 +59,67 @@ bool shared_queue_create(share_queue* q, int mode, int format,
 		q_head->delay_frame = 5;
 		q->mode = mode;	
 		q->index = 0;
+		q->in = 0;
+		q->out = 0;
+		pthread_mutex_init(&q->queue_lock, NULL);
+		sem_init(&q->count_sem, 0, 0 );
+		sem_init(&q->space_sem, 0, qlength);
 		
 	}
-
-	return (q->hwnd != NULL && q->header != NULL);
+	
+	return (q->header != nullptr);
 }
 
 bool shared_queue_open(share_queue* q, int mode)
 {
-	if (!q)
-		return false;
-
-	if (mode == ModeVideo)
-		q->hwnd = OpenFileMappingA(FILE_MAP_ALL_ACCESS, FALSE, MAPPING_NAMEV);
-	else if (mode == ModeAudio)
-		q->hwnd = OpenFileMappingA(FILE_MAP_ALL_ACCESS, FALSE, MAPPING_NAMEA);
-	else
-		return false;
-
-	if (q->hwnd){
-		q->header = (queue_header*)MapViewOfFile(q->hwnd, 
-			FILE_MAP_ALL_ACCESS,0, 0, 0);
-	}
-	else
-		return false;
-	
-	if (q->header == nullptr){
-		CloseHandle(q->hwnd);
-		q->hwnd = nullptr;
-		return false;
-	}
-
-	q->mode = mode;
-	
-	return true;
+     std::cout << "shared_queue_open" << std::endl;
+     return false;
 }
 
 bool shared_queue_check(int mode)
 {
-	HANDLE hwnd =NULL;
+  std::cout << "shared_queue_check" << std::endl;
+  //HANDLE hwnd =nullptr;
 
-	if (mode == ModeVideo)
-		hwnd = OpenFileMappingA(FILE_MAP_ALL_ACCESS, FALSE, MAPPING_NAMEV);
-	else if (mode == ModeAudio)
-		hwnd = OpenFileMappingA(FILE_MAP_ALL_ACCESS, FALSE, MAPPING_NAMEA);
-	else
-		return false;
-
-	if (hwnd){
-		CloseHandle(hwnd);
-		return false;
+	if (mode == ModeVideo){
+	  //hwnd = OpenFileMappingA(FILE_MAP_ALL_ACCESS, FALSE, MAPPING_NAMEV);
+	  std::cout << "This is a Video Queue!" << std::endl;
+	  return true;
+	}
+	else if (mode == ModeAudio){
+	  //hwnd = OpenFileMappingA(FILE_MAP_ALL_ACCESS, FALSE, MAPPING_NAMEA);
+	  std::cout << "This is a Audio Queue!" << std::endl;
+	  return true;
 	}
 	else
-		return true;
+		return false;
+
+	// if (hwnd){
+	//   //CloseHandle(hwnd);
+	// 	return false;
+	// }
+	// else
+	// 	return true;
 }
 
 void shared_queue_close(share_queue* q)
 {
+    std::cout << "shared_queue_close" << std::endl;
 	if (q && q->header){
-		q->header->state = OutputStop;
-		UnmapViewOfFile(q->header);
-		CloseHandle(q->hwnd);
+	  //q->header->state = OutputStop;
+		//UnmapViewOfFile(q->header);
+		//CloseHandle(q->hwnd);
+	  delete [] q->header;
 		q->header = nullptr;
-		q->hwnd = NULL;
+		//	q->hwnd = nullptr;
 		q->index = -1;
+		pthread_mutex_destroy(&q->queue_lock);
 	}
 }
 
 bool shared_queue_set_delay(share_queue* q,int delay_video_frame)
 {
+    std::cout << "shared_queue_set_delay" << std::endl;
 	if (!q || !q->header)
 		return false;
 
@@ -129,6 +129,7 @@ bool shared_queue_set_delay(share_queue* q,int delay_video_frame)
 
 bool share_queue_init_index(share_queue* q)
 {
+    std::cout << "shared_queue_init_index" << std::endl;
 	if (!q || !q->header)
 		return false;
 
@@ -175,44 +176,51 @@ bool share_queue_init_index(share_queue* q)
 bool shared_queue_get_video_format(int* format ,int* width, 
 	int* height, int64_t* avgtime)
 {
+    std::cout << "shared_queue_get_video_format" << std::endl;
 	bool success =true;
-	HANDLE hwnd;
-	queue_header* header;
+	//HANDLE hwnd;
+	//queue_header* header;
 	
-	hwnd = OpenFileMappingA(FILE_MAP_ALL_ACCESS, FALSE, MAPPING_NAMEV);
-	if (hwnd)
-		header = (queue_header*)MapViewOfFile(hwnd, FILE_MAP_ALL_ACCESS, 0, 0, 0);
-	else
-		return false;
+	//hwnd = OpenFileMappingA(FILE_MAP_ALL_ACCESS, FALSE, MAPPING_NAMEV);
+	//if (hwnd){
+	  //header = (queue_header*)MapViewOfFile(hwnd, FILE_MAP_ALL_ACCESS, 0, 0, 0);
+	//}
+	//else
+	//	return false;
 
-	if (header){
-		*format = header->format;
-		*width = header->frame_width;
-		*height = header->frame_height;
-		*avgtime = (header->frame_time) / 100;	
-		UnmapViewOfFile(header);
-	}
-	else
-		success = false;
+	//if (header){
+	//	*format = header->format;
+	//	*width = header->frame_width;
+	//	*height = header->frame_height;
+	//	*avgtime = (header->frame_time) / 100;	
+	//	//UnmapViewOfFile(header);
+	//}
+	//else
+	//	success = false;
 
-	CloseHandle(hwnd);
+	//CloseHandle(hwnd);
 	return success;
 }
 
 bool shared_queue_get_video(share_queue* q, uint8_t** data, 
 	uint32_t*linesize, uint64_t* timestamp)
 {
+  //std::cout << "shared_queue_get_video" << std::endl;
 	if (!q || !q->header)
 		return false;
 
-	if (q->index == q->header->write_index)
-		return false;
+	sem_wait( &q->count_sem );
+	pthread_mutex_lock( &q->queue_lock );
+	//{
+	//int count;
+	//  sem_getvalue( &q->count_sem, &count );
+	//  std::cout << count << "  items remain in the ring queue." << std::endl;
+	//}
 
-	if (q->index < 0)
-		share_queue_init_index(q);
-
+	//std::cout << "Reader Locked." << std::endl;
+	
 	int offset = q->header->header_size +
-		(q->header->element_size)*q->index;
+		(q->header->element_size)*q->out;
 
 	uint8_t* buff = (uint8_t*)q->header + offset;
 	frame_header* head = (frame_header*)buff;
@@ -259,21 +267,36 @@ bool shared_queue_get_video(share_queue* q, uint8_t** data,
 
 	*timestamp = head->timestamp;
 
-	q->index++;
+	q->out++;
 
-	if (q->index >= q->header->queue_length) 
-		q->index = 0; 
+	if (q->out >= q->header->queue_length) 
+		q->out = 0; 
 
+	//std::cout << "Reader UnLocked." << std::endl;
+	pthread_mutex_unlock( &q->queue_lock );
+	sem_post( &q->space_sem );	
+	
 	return true;
 }
 bool shared_queue_push_video(share_queue* q, uint32_t* linesize,
 	uint32_t height,uint8_t** src,uint64_t timestamp)
 {
+  //std::cout << "shared_queue_push_video" << std::endl;
 	if (!q || !q->header)
 		return false;
 
+	sem_wait( &q->space_sem );
+	pthread_mutex_lock( &q->queue_lock );
+	//std::cout << "Writer Locked." << std::endl;
+	//{
+	//  int space;
+	//  sem_getvalue( &q->space_sem, &space );
+	  //std::cout << space << " space remains in the ring queue." << std::endl;
+	//}
+	//std::cout << "Filling timestamp " << timestamp << " at " << q->in << " index with video" << std::endl;
+	
 	int offset = q->header->header_size +
-		(q->header->element_size)*q->index;
+		(q->header->element_size)*q->in;
 
 	uint8_t* buff = (uint8_t*)q->header + offset;
 	frame_header* head = (frame_header*)buff;
@@ -282,9 +305,11 @@ bool shared_queue_push_video(share_queue* q, uint32_t* linesize,
 
 	switch (q->header->format) {
 	case AV_PIX_FMT_NONE:
+	  //std::cout << "Format: AV_PIX_FMT_NONE" << std::endl;
 		return false;
 
 	case AV_PIX_FMT_YUV420P:
+	  //std::cout << "Format: AV_PIX_FMT_YUV420P" << std::endl;
 		planes = 3;
 		memcpy(data, src[0], linesize[0] * height);
 		data += linesize[0] * height;
@@ -294,6 +319,7 @@ bool shared_queue_push_video(share_queue* q, uint32_t* linesize,
 		break;
 
 	case AV_PIX_FMT_NV12:
+	  //std::cout << "Format: AV_PIX_FMT_NV12" << std::endl;
 		planes = 2;
 		memcpy(data, src[0], linesize[0] * height);
 		data += linesize[0] * height;
@@ -305,11 +331,13 @@ bool shared_queue_push_video(share_queue* q, uint32_t* linesize,
 	case AV_PIX_FMT_UYVY422:
 	case AV_PIX_FMT_RGBA:
 	case AV_PIX_FMT_BGRA:
+	  //std::cout << "Format: AV_PIX_FMT_*" << std::endl;
 		planes = 1;
 		memcpy(data, src[0], linesize[0] * height);
 		break;
 
 	case AV_PIX_FMT_YUV444P:
+	  //std::cout << "Format: AV_PIX_FMT_YUV444P" << std::endl;
 		planes = 3;
 		memcpy(data, src[0], linesize[0] * height);
 		data += linesize[0] * height;
@@ -324,21 +352,26 @@ bool shared_queue_push_video(share_queue* q, uint32_t* linesize,
 
 	head->timestamp = timestamp;
 
-	q->header->write_index = q->index;
+	//q->header->write_index = q->index;
 
-	q->index++;
+	q->in++;
 
-	if (q->index >= q->header->queue_length){
-		q->header->state = OutputReady;
-		q->index = 0;
+	if (q->in >= q->header->queue_length){
+	  //		q->header->state = OutputReady;
+		q->in = 0;
 	}
 
+	//std::cout << "Writer UnLocked." << std::endl;
+	pthread_mutex_unlock( &q->queue_lock );
+	sem_post(&q->count_sem);
+	
 	return true;
 }
 
 bool shared_queue_get_audio(share_queue* q, uint8_t** data,
 	uint32_t* size, uint64_t* timestamp)
 {
+  //std::cout << "shared_queue_get_audio" << std::endl;
 	if (!q || !q->header)
 		return false;
 
@@ -370,11 +403,17 @@ bool shared_queue_get_audio(share_queue* q, uint8_t** data,
 bool shared_queue_push_audio(share_queue* q, uint32_t size,
 	uint8_t* src, uint64_t timestamp,uint64_t video_ts)
 {
+  //std::cout << "shared_queue_push_audio" << std::endl;
 	if (!q || !q->header)
 		return false;
 
+	sem_wait( &q->space_sem );
+	pthread_mutex_lock( &q->queue_lock );
+	
+	//std::cout << "Filling " << q->in << " index with audio" << std::endl;
+
 	int offset = q->header->header_size +
-		(q->header->element_size)*q->index;
+		(q->header->element_size)*q->in;
 
 	uint8_t* buff = (uint8_t*)q->header + offset;
 	frame_header* head = (frame_header*)buff;
@@ -384,13 +423,16 @@ bool shared_queue_push_audio(share_queue* q, uint32_t size,
 	head->timestamp = timestamp;
 
 	q->header->last_ts = video_ts;
-	q->header->write_index = q->index;
-	q->index++;
+	//q->header->write_index = q->index;
+	q->in++;
 
-	if (q->index >= q->header->queue_length){
-		q->index = 0;
-		q->header->state = OutputReady;
+	if (q->in >= q->header->queue_length){
+		q->in = 0;
+		//		q->header->state = OutputReady;
 	}
 
+	pthread_mutex_unlock(&q->queue_lock);
+	sem_post(&q->count_sem);
+	
 	return true;
 }

@@ -1,20 +1,25 @@
 #pragma once
 
-#include <Windows.h>
+//#include <Windows.h>
+
+#include <cstdint>
+#include <pthread.h>
+#include <semaphore.h>
 
 #define VIDEO_SIZE 1920*1080*4
 #define AUDIO_SIZE 4096
 #define MAPPING_NAMEV "OBSVirtualVideo"
 #define MAPPING_NAMEA "OBSVirtualAudio"
 
-typedef signed char        int8_t;
-typedef short              int16_t;
-typedef int                int32_t;
-typedef long long          int64_t;
-typedef unsigned char      uint8_t;
-typedef unsigned short     uint16_t;
-typedef unsigned int       uint32_t;
-typedef unsigned long long uint64_t;
+//typedef signed char        int8_t;
+//typedef short              int16_t;
+//typedef int                int32_t;
+//typedef long long          int64_t;
+//typedef unsigned char      uint8_t;
+//typedef unsigned short     uint16_t;
+//typedef unsigned int       uint32_t;
+//typedef unsigned long long uint64_t;
+typedef void* HANDLE;
 
 enum 
 {
@@ -55,7 +60,10 @@ struct share_queue
 {
 	int mode =0 ;
 	int index = -1;
-	HANDLE hwnd =NULL;
+        int in, out;
+  	HANDLE hwnd = nullptr;
+        pthread_mutex_t queue_lock;
+        sem_t count_sem, space_sem;
 	queue_header* header = nullptr;
 };
 
